@@ -7,7 +7,7 @@ import os
 # إعدادات الصفحة
 st.set_page_config(page_title="Karim cash", page_icon="💰", layout="centered")
 
-# تنسيقات CSS لتحسين مظهر البطاقات والأزرار
+# تنسيقات CSS لتحسين المظهر
 st.markdown("""
     <style>
     .stMetric {
@@ -27,10 +27,7 @@ st.markdown("""
 DATA_FILE = "budget_data.json"
 
 def load_data():
-    if os.path.exists(DATA_FILE):
-        with open(DATA_FILE, "r", encoding="utf-8") as f:
-            return json.load(f)
-    return {
+    default_data = {
         "monthly_limit": 1000.0,
         "sava_amount": 200.0,
         "income_list": [],
@@ -40,6 +37,18 @@ def load_data():
         "debts_alei": [],
         "password": "123"
     }
+    if os.path.exists(DATA_FILE):
+        try:
+            with open(DATA_FILE, "r", encoding="utf-8") as f:
+                loaded = json.load(f)
+                # دمج البيانات مع البيانات الافتراضية لمنع KeyError عند تحديث الهيكل
+                for key, val in default_data.items():
+                    if key not in loaded:
+                        loaded[key] = val
+                return loaded
+        except Exception:
+            return default_data
+    return default_data
 
 def save_data(data):
     with open(DATA_FILE, "w", encoding="utf-8") as f:
@@ -81,13 +90,13 @@ menu = st.sidebar.radio(
     ]
 )
 
-# الحسابات الإجمالية
-total_income = sum(item["المبلغ"] for item in data["income_list"]) if data["income_list"] else data["monthly_limit"]
-sava_amount = data["sava_amount"]
+# الحسابات الإجمالية آمنة باستخدام دالة .get() لتجنب أي KeyError
+total_income = sum(item.get("المبلغ", 0.0) for item in data.get("income_list", [])) if data.get("income_list") else data.get("monthly_limit", 1000.0)
+sava_amount = data.get("sava_amount", 200.0)
 effective_limit = total_income - sava_amount
 
-total_commitments = sum(item["المبلغ"] for item in data["commitments"]) if data["commitments"] else 0.0
-total_expenses = sum(item["المبلغ"] for item in data["expenses"]) if data["expenses"] else 0.0
+total_commitments = sum(item.get("المبلغ", 0.0) for item in data.get("commitments", [])) if data.get("commitments") else 0.0
+total_expenses = sum(item.get("المبلغ", 0.0) for item in data.get("expenses", [])) if data.get("expenses") else 0.0
 total_out = total_commitments + total_expenses
 remaining_budget = effective_limit - total_out
 
@@ -125,7 +134,7 @@ elif menu == "💵 إدارة الدخل":
                 st.rerun()
             
     st.markdown("### 📜 السجل المالي للدخل")
-    if data["income_list"]:
+    if data.get("income_list"):
         st.dataframe(pd.DataFrame(data["income_list"]), use_container_width=True)
         if st.button("🗑️ حذف آخر دخل مسجل"):
             data["income_list"].pop()
@@ -148,7 +157,7 @@ elif menu == "📋 الالتزامات الثابتة":
                 st.rerun()
             
     st.markdown("### 📜 سجل الالتزامات")
-    if data["commitments"]:
+    if data.get("commitments"):
         st.dataframe(pd.DataFrame(data["commitments"]), use_container_width=True)
         if st.button("🗑️ حذف آخر التزام مسجل"):
             data["commitments"].pop()
@@ -160,97 +169,4 @@ elif menu == "📋 الالتزامات الثابتة":
 # 🛒 4. المصاريف اليومية
 elif menu == "🛒 المصاريف اليومية":
     st.title("🛒 المصاريف اليومية")
-    with st.form("expense_form", clear_on_submit=True):
-        exp_title = st.text_input("📌 وصف المصروف (مثال: سوبرماركت، قهوة...)")
-        exp_amount = st.number_input("💵 المبلغ (ريال)", min_value=0.1, step=1.0)
-        if st.form_submit_button("➕ إضافة مصروف يومي", use_container_width=True):
-            if exp_title:
-                data["expenses"].append({"التاريخ": datetime.today().strftime("%Y-%m-%d"), "البند": exp_title, "المبلغ": exp_amount})
-                save_data(data)
-                st.success("✨ تمت إضافة المصروف بنجاح!")
-                st.rerun()
-            
-    st.markdown("### 📜 سجل المصاريف اليومية")
-    if data["expenses"]:
-        st.dataframe(pd.DataFrame(data["expenses"]), use_container_width=True)
-        if st.button("🗑️ حذف آخر مصروف مسجل"):
-            data["expenses"].pop()
-            save_data(data)
-            st.rerun()
-    else:
-        st.info("ℹ️ لا توجد مصاريف يومية مسجلة.")
-
-# 📥 5. الديون (لك / لي)
-elif menu == "📥 الديون (لك / لي)":
-    st.title("📥 الأموال المستحقة لك عند الآخرين")
-    with st.form("debt_li_form", clear_on_submit=True):
-        person_li = st.text_input("👤 اسم الشخص")
-        amount_li = st.number_input("💵 المبلغ (ريال)", min_value=0.1, step=1.0)
-        notes_li = st.text_input("📝 ملاحظات اختيارية")
-        if st.form_submit_button("➕ تسجيل دين (لي)", use_container_width=True):
-            if person_li:
-                data["debts_li"].append({"الشخص": person_li, "المبلغ": amount_li, "الحالة": "مستحق ⏳", "ملاحظات": notes_li})
-                save_data(data)
-                st.success("✨ تمت الإضافة بنجاح!")
-                st.rerun()
-            
-    st.markdown("### 📜 قائمة الأموال المستحقة لك")
-    if data["debts_li"]:
-        st.dataframe(pd.DataFrame(data["debts_li"]), use_container_width=True)
-        idx_li = st.number_input("رقم الصف للتعديل أو الحذف", min_value=0, max_value=max(0, len(data["debts_li"])-1), step=1, format="%d")
-        col_l1, col_l2 = st.columns(2)
-        if col_l1.button("🔄 تبديل الحالة (تم السداد / مستحق)", use_container_width=True):
-            current = data["debts_li"][idx_li]["الحالة"]
-            data["debts_li"][idx_li]["الحالة"] = "تم السداد ✅" if "مستحق" in current else "مستحق ⏳"
-            save_data(data)
-            st.rerun()
-        if col_l2.button("🗑️ حذف السجل", use_container_width=True):
-            data["debts_li"].pop(idx_li)
-            save_data(data)
-            st.rerun()
-    else:
-        st.info("ℹ️ لا توجد ديون مسجلة لك.")
-
-# 📤 6. الديون (عليك)
-elif menu == "📤 الديون (عليك)":
-    st.title("📤 الأموال المستحقة عليك للآخرين")
-    with st.form("debt_alei_form", clear_on_submit=True):
-        person_alei = st.text_input("👤 اسم الدائن")
-        amount_alei = st.number_input("💵 المبلغ (ريال)", min_value=0.1, step=1.0)
-        notes_alei = st.text_input("📝 ملاحظات اختيارية")
-        if st.form_submit_button("➕ تسجيل دين (علي)", use_container_width=True):
-            if person_alei:
-                data["debts_alei"].append({"الشخص": person_alei, "المبلغ": amount_alei, "الحالة": "مستحق ⏳", "ملاحظات": notes_alei})
-                save_data(data)
-                st.success("✨ تمت الإضافة بنجاح!")
-                st.rerun()
-            
-    st.markdown("### 📜 قائمة الأموال المستحقة عليك")
-    if data["debts_alei"]:
-        st.dataframe(pd.DataFrame(data["debts_alei"]), use_container_width=True)
-        idx_alei = st.number_input("رقم الصف للتعديل أو الحذف ", min_value=0, max_value=max(0, len(data["debts_alei"])-1), step=1, format="%d")
-        col_a1, col_a2 = st.columns(2)
-        if col_a1.button("🔄 تبديل الحالة (تم السداد / مستحق) ", use_container_width=True):
-            current_a = data["debts_alei"][idx_alei]["الحالة"]
-            data["debts_alei"][idx_alei]["الحالة"] = "تم السداد ✅" if "مستحق" in current_a else "مستحق ⏳"
-            save_data(data)
-            st.rerun()
-        if col_a2.button("🗑️ حذف السجل ", use_container_width=True):
-            data["debts_alei"].pop(idx_alei)
-            save_data(data)
-            st.rerun()
-    else:
-        st.info("ℹ️ لا توجد ديون مسجلة عليك.")
-
-# ⚙️ 7. الإعدادات والأمان
-elif menu == "⚙️ الإعدادات والأمان":
-    st.title("⚙️ الإعدادات والأمان")
-    new_sava = st.number_input("🛡️ تعديل مبلغ مستقطع Sava الشهري (ريال)", value=float(data["sava_amount"]), step=10.0)
-    new_pass = st.text_input("🔑 تغيير كلمة المرور جديدة", type="password")
-    
-    if st.button("💾 حفظ الإعدادات الجديدة", use_container_width=True):
-        data["sava_amount"] = new_sava
-        if new_pass:
-            data["password"] = new_pass
-        save_data(data)
-        st.success("✨ تم تحديث الإعدادات بنجاح!")
+    with st.form("expense_form", clear_on
