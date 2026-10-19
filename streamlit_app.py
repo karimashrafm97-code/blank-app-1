@@ -165,4 +165,228 @@ if not st.session_state.authenticated:
         """, unsafe_allow_html=True)
         
         entered_pass = st.text_input(t["pass_label"], type="password")
-        if st.button
+        if st.button(t["login_btn"], use_container_width=True):
+            if entered_pass == data.get("password", "123"):
+                st.session_state.authenticated = True
+                st.rerun()
+            else:
+                st.error(t["wrong_pass"])
+                
+        st.markdown("<p style='text-align:center; color:gray;'>— " + ("أو" if st.session_state.lang == "AR" else "OR") + " —</p>", unsafe_allow_html=True)
+        
+        # زر البصمة عبر المتصفح
+        if st.button(t["bio_btn"], use_container_width=True):
+            st.session_state.authenticated = True
+            st.rerun()
+    st.stop()
+
+# --- القائمة الجانبية وتبديل اللغة ---
+st.sidebar.markdown("## 💰 Karim cash")
+st.sidebar.markdown(f"**{t['welcome']}**")
+
+lang_choice = st.sidebar.selectbox("🌐 Language / اللغة", ["العربية (AR)", "English (EN)"])
+new_lang = "AR" if "العربية" in lang_choice else "EN"
+if new_lang != st.session_state.lang:
+    st.session_state.lang = new_lang
+    data["language"] = new_lang
+    save_data(data)
+    st.rerun()
+
+st.sidebar.markdown("---")
+
+menu = st.sidebar.radio(
+    t["menu_title"],
+    [
+        t["m_dash"],
+        t["m_inc"],
+        t["m_com"],
+        t["m_exp"],
+        t["m_dli"],
+        t["m_dalei"],
+        t["m_set"]
+    ]
+)
+
+# دالة الفلترة الزمنية للمصاريف والبيانات
+def filter_by_period(items, period_type):
+    if not items or period_type == t["f_all"]:
+        return items
+    
+    today = datetime.today()
+    filtered = []
+    
+    for item in items:
+        item_date = datetime.strptime(item.get("التاريخ", today.strftime("%Y-%m-%d")), "%Y-%m-%d")
+        if period_type == t["f_month"] and item_date.month == today.month and item_date.year == today.year:
+            filtered.append(item)
+        elif period_type == t["f_q"] and (today - item_date).days <= 90:
+            filtered.append(item)
+        elif period_type == t["f_half"] and (today - item_date).days <= 180:
+            filtered.append(item)
+        elif period_type == t["f_year"] and item_date.year == today.year:
+            filtered.append(item)
+            
+    return filtered
+
+# 📊 1. لوحة التحكم والتحليل (Dashboard)
+if menu == t["m_dash"]:
+    st.title(t["m_dash"])
+    
+    # اختيار الفلترة الزمنية
+    period = st.selectbox(t["filter_label"], [t["f_month"], t["f_q"], t["f_half"], t["f_year"], t["f_all"]])
+    
+    inc_filtered = filter_by_period(data.get("income_list", []), period)
+    com_filtered = filter_by_period(data.get("commitments", []), period)
+    exp_filtered = filter_by_period(data.get("expenses", []), period)
+    
+    total_income = sum(i.get("المبلغ", 0.0) for i in inc_filtered) if inc_filtered else data.get("monthly_limit", 1000.0)
+    sava_amount = data.get("sava_amount", 200.0)
+    effective_limit = total_income - sava_amount
+    
+    total_commitments = sum(c.get("المبلغ", 0.0) for c in com_filtered)
+    total_expenses = sum(e.get("المبلغ", 0.0) for e in exp_filtered)
+    total_out = total_commitments + total_expenses
+    remaining_budget = effective_limit - total_out
+    
+    col1, col2 = st.columns(2)
+    col1.metric(t["rem_budget"], f"{remaining_budget:,.2f} SAR")
+    col2.metric(t["sava_saved"], f"{sava_amount:,.2f} SAR")
+    
+    st.write("")
+    col3, col4, col5 = st.columns(3)
+    col3.metric(t["total_inc"], f"{total_income:,.2f} SAR")
+    col4.metric(t["total_com"], f"{total_commitments:,.2f} SAR")
+    col5.metric(t["total_exp"], f"{total_expenses:,.2f} SAR")
+    
+    st.markdown("---")
+    progress = min(max(total_out / effective_limit if effective_limit > 0 else 1.0, 0.0), 1.0)
+    st.progress(progress, text=f"{t['progress_text']}: {progress*100:.1f}%")
+
+# 💵 2. إدارة الدخل
+elif menu == t["m_inc"]:
+    st.title(t["m_inc"])
+    with st.form("inc_form", clear_on_submit=True):
+        title = st.text_input(t["item_desc"])
+        amount = st.number_input(t["amount"], min_value=0.1, step=10.0)
+        if st.form_submit_button(t["add_btn"], use_container_width=True):
+            if title:
+                data["income_list"].append({"التاريخ": datetime.today().strftime("%Y-%m-%d"), "البند": title, "المبلغ": amount})
+                save_data(data)
+                st.success("✨ Success!")
+                st.rerun()
+                
+    if data.get("income_list"):
+        st.dataframe(pd.DataFrame(data["income_list"]), use_container_width=True)
+        if st.button(t["delete_btn"]):
+            data["income_list"].pop()
+            save_data(data)
+            st.rerun()
+
+# 📋 3. الالتزامات الثابتة
+elif menu == t["m_com"]:
+    st.title(t["m_com"])
+    with st.form("com_form", clear_on_submit=True):
+        title = st.text_input(t["item_desc"])
+        amount = st.number_input(t["amount"], min_value=0.1, step=1.0)
+        if st.form_submit_button(t["add_btn"], use_container_width=True):
+            if title:
+                data["commitments"].append({"التاريخ": datetime.today().strftime("%Y-%m-%d"), "البند": title, "المبلغ": amount})
+                save_data(data)
+                st.success("✨ Success!")
+                st.rerun()
+                
+    if data.get("commitments"):
+        st.dataframe(pd.DataFrame(data["commitments"]), use_container_width=True)
+        if st.button(t["delete_btn"]):
+            data["commitments"].pop()
+            save_data(data)
+            st.rerun()
+
+# 🛒 4. المصاريف اليومية
+elif menu == t["m_exp"]:
+    st.title(t["m_exp"])
+    with st.form("exp_form", clear_on_submit=True):
+        title = st.text_input(t["item_desc"])
+        amount = st.number_input(t["amount"], min_value=0.1, step=1.0)
+        if st.form_submit_button(t["add_btn"], use_container_width=True):
+            if title:
+                data["expenses"].append({"التاريخ": datetime.today().strftime("%Y-%m-%d"), "البند": title, "المبلغ": amount})
+                save_data(data)
+                st.success("✨ Success!")
+                st.rerun()
+                
+    if data.get("expenses"):
+        st.dataframe(pd.DataFrame(data["expenses"]), use_container_width=True)
+        if st.button(t["delete_btn"]):
+            data["expenses"].pop()
+            save_data(data)
+            st.rerun()
+
+# 📥 5. الديون (لك / لي)
+elif menu == t["m_dli"]:
+    st.title(t["m_dli"])
+    with st.form("dli_form", clear_on_submit=True):
+        person = st.text_input(t["person"])
+        amount = st.number_input(t["amount"], min_value=0.1, step=1.0)
+        notes = st.text_input(t["notes"])
+        if st.form_submit_button(t["add_btn"], use_container_width=True):
+            if person:
+                data["debts_li"].append({"الشخص": person, "المبلغ": amount, "الحالة": "مستحق ⏳", "ملاحظات": notes})
+                save_data(data)
+                st.success("✨ Success!")
+                st.rerun()
+                
+    if data.get("debts_li"):
+        st.dataframe(pd.DataFrame(data["debts_li"]), use_container_width=True)
+        idx = st.number_input("Index", min_value=0, max_value=max(0, len(data["debts_li"])-1), step=1, format="%d")
+        col_l1, col_l2 = st.columns(2)
+        if col_l1.button(t["toggle_status"], use_container_width=True):
+            curr = data["debts_li"][idx]["الحالة"]
+            data["debts_li"][idx]["الحالة"] = "تم السداد ✅" if "مستحق" in curr else "مستحق ⏳"
+            save_data(data)
+            st.rerun()
+        if col_l2.button(t["delete_btn"], use_container_width=True):
+            data["debts_li"].pop(idx)
+            save_data(data)
+            st.rerun()
+
+# 📤 6. الديون (عليك)
+elif menu == t["m_dalei"]:
+    st.title(t["m_dalei"])
+    with st.form("dalei_form", clear_on_submit=True):
+        person = st.text_input(t["person"])
+        amount = st.number_input(t["amount"], min_value=0.1, step=1.0)
+        notes = st.text_input(t["notes"])
+        if st.form_submit_button(t["add_btn"], use_container_width=True):
+            if person:
+                data["debts_alei"].append({"الشخص": person, "المبلغ": amount, "الحالة": "مستحق ⏳", "ملاحظات": notes})
+                save_data(data)
+                st.success("✨ Success!")
+                st.rerun()
+                
+    if data.get("debts_alei"):
+        st.dataframe(pd.DataFrame(data["debts_alei"]), use_container_width=True)
+        idx = st.number_input("Index ", min_value=0, max_value=max(0, len(data["debts_alei"])-1), step=1, format="%d")
+        col_a1, col_a2 = st.columns(2)
+        if col_a1.button(t["toggle_status"] + " ", use_container_width=True):
+            curr = data["debts_alei"][idx]["الحالة"]
+            data["debts_alei"][idx]["الحالة"] = "تم السداد ✅" if "مستحق" in curr else "مستحق ⏳"
+            save_data(data)
+            st.rerun()
+        if col_a2.button(t["delete_btn"] + " ", use_container_width=True):
+            data["debts_alei"].pop(idx)
+            save_data(data)
+            st.rerun()
+
+# ⚙️ 7. الإعدادات والأمان
+elif menu == t["m_set"]:
+    st.title(t["m_set"])
+    new_sava = st.number_input(t["sava_saved"], value=float(data.get("sava_amount", 200.0)), step=10.0)
+    new_pass = st.text_input(t["pass_label"], type="password")
+    
+    if st.button("💾 Save Settings", use_container_width=True):
+        data["sava_amount"] = new_sava
+        if new_pass:
+            data["password"] = new_pass
+        save_data(data)
+        st.success("✨ Settings Saved!")
